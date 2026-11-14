@@ -1,0 +1,221 @@
+// Database schema — read by Prisma to generate the client (JS) and the SQL
+// migrations (prisma/migrations/). Explained in server/README.md.
+//
+// After a change here:  npm run db:migrate -- --name what_changed
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A player account.
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique              // stored lowercase
+  username     String                         // shown at the table; two players may share one
+  /// 4 random digits (1000-9999) given at sign-up: "username#tag" is the
+  /// player's friend code, unique (src/shared/auth/rules.js).
+  tag          Int
+  /// Argon2id hash of the password: "$argon2id$v=19$m=…,t=…,p=…$<salt>$<hash>".
+  /// Never the password itself. Null for accounts created through OAuth 42 (later).
+  passwordHash String?
+  createdAt    DateTime  @default(now())
+  /// Last time the player left the room (closed the page): friends read "Vu il y a 2 h".
+  /// Null while never seen; online / at a table is in memory (friends/presence.js).
+  lastSeenAt   DateTime?
+  sessions     Session[]
+  games        Game[]
+  achievements UserAchievement[]
+  infosets     PlayerInfoset[]
+  ranges       SavedRange[]
+  friendsAsked    Friendship[]      @relation("FriendshipRequester")
+  friendsAsking   Friendship[]      @relation("FriendshipAddressee")
+  invitationsSent TableInvitation[] @relation("InvitationFrom")
+  invitationsGot  TableInvitation[] @relation("InvitationTo")
+
+  @@unique([username, tag])
+}
+
+/// A logged-in browser. The browser holds a random token in a cookie; the
+/// database only keeps the SHA-256 of that token (a stolen database gives no
+/// usable cookie).
+model Session {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
+enum GameStatus {
+  PLAYING // in progress (or the browser was closed: becomes QUIT at the next game)
+  WON     // every AI busted
+  LOST    // the player busted
+  QUIT    // left before the end
+}
+
+/// One game against the AIs. Only for logged-in players (guests are not saved).
+model Game {
+  id            Int        @id @default(autoincrement())
+  userId        Int
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        GameStatus @default(PLAYING)
+  /// [{ name, level }] — the AIs, seats 1, 2, …
+  opponents     Json
+  startingStack Int
+  smallBlind    Int
+  bigBlind      Int
+  /// The server's own state after the last saved hand (the next hand is replayed from it)
+  stacks        Int[]
+  button        Int        @default(-1)
+  handsPlayed   Int        @default(0)
+  /// The player's chips when the game ended
+  finalStack    Int?
+  startedAt     DateTime   @default(now())
+  endedAt       DateTime?
+  hands         Hand[]
+
+  @@index([userId, startedAt])
+}
+
+/// One hand, as replayed and checked by the server (src/shared/stats/).
+model Hand {
+  id              Int      @id @default(autoincrement())
+  gameId          Int
+  game            Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  number          Int      // 1, 2, … within the game
+  button          Int      // seat indexes
+  sb              Int
+  bb              Int
+  board           String[] // 'AS', 'TD', … (0, 3, 4 or 5)
+  pot             Int
+  result          String   // 'uncontested' | 'showdown'
+  /// Per seat: { seat, name, stackStart, stackEnd, hole, folded, showed, handName, collected }
+  players         Json
+  // The player's (seat 0) numbers, as columns so the stats are simple queries
+  heroHole        String[]
+  heroNet         Int      // chips won (+) or lost (-) in this hand
+  heroCollected   Int      // chips taken from the pot
+  heroVpip        Boolean  // put chips in preflop by choice
+  heroPfr         Boolean  // raised preflop
+  heroAllIn       Boolean
+  heroShowdown    Boolean
+  heroShowdownWon Boolean
+  heroHandName    String?  // at showdown, e.g. "Full aux rois par les sept"
+  playedAt        DateTime @default(now())
+  actions         Action[]
+
+  @@unique([gameId, number])
+}
+
+/// Every move of a hand, in order: blinds, folds, checks, calls, bets, raises.
+model Action {
+  id       Int     @id @default(autoincrement())
+  handId   Int
+  hand     Hand    @relation(fields: [handId], references: [id], onDelete: Cascade)
+  seq      Int     // 0, 1, 2… order within the hand
+  street   Int     // 0 preflop, 1 flop, 2 turn, 3 river
+  seat     Int
+  type     String  // blind | fold | check | call | bet | raise
+  amount   Int     // chips put in by this move
+  betTo    Int     // the seat's total bet on this street afterwards
+  potAfter Int
+  allIn    Boolean
+
+  @@unique([handId, seq])
+}
+
+/// An unlocked achievement (the list and the rules: src/shared/stats/achievements.js).
+model UserAchievement {
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code       String
+  unlockedAt DateTime @default(now())
+
+  @@id([userId, code])
+}
+
+/// The player's decisions counted per solver infoset (src/shared/stats/playerInfosets.js):
+/// their own strategy, in the format of the solver's strategy.txt. DERIVED from
+/// Hand / Action (the source of truth): `npm run db:rebuild-infosets` rebuilds it,
+/// e.g. after the solver is retrained with another abstraction.
+model PlayerInfoset {
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Which abstraction the key belongs to: hash of the solver's bucket / threshold files
+  version   String
+  /// Infoset key, 64-bit unsigned as decimal text (too big for PostgreSQL's signed bigint)
+  key       String
+  round     Int      // 0 preflop … 3 river
+  player    Int      // solver seat: 0 = small blind, 1 = big blind
+  bucket    Int
+  history   String   // abstract history, e.g. "rc/c///"
+  folds     Int      @default(0)
+  calls     Int      @default(0) // checks included
+  raises    Int      @default(0) // bets included
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, version, key])
+}
+
+/// A range the player built in the range chart ("Construire") and saved to their account.
+model SavedRange {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  /// { "AKs": { "raise": 1 }, "77": { "call": 1 }, … } — missing hand = fold
+  /// (checked by cleanRange, src/shared/poker/ranges.js)
+  range     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+}
+
+enum FriendshipStatus {
+  PENDING  // asked, not answered yet
+  ACCEPTED // friends
+}
+
+/// A friend request (PENDING), then the friendship itself once accepted: one row
+/// per pair of players, whoever asked. friends/service.js looks both ways before
+/// creating one (B asking A while A already asked B accepts A's request).
+model Friendship {
+  id          Int              @id @default(autoincrement())
+  requesterId Int
+  requester   User             @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId Int
+  addressee   User             @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  acceptedAt  DateTime?
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+}
+
+/// "Come to my table": sent to a friend who is online. One per pair (sending it
+/// again refreshes it); old ones expire (lobby/service.js).
+model TableInvitation {
+  id        Int      @id @default(autoincrement())
+  fromId    Int
+  from      User     @relation("InvitationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId      Int
+  to        User     @relation("InvitationTo", fields: [toId], references: [id], onDelete: Cascade)
+  /// The shared table to join (its code, server/src/table/shared.js), or null:
+  /// the friend has no table open yet. Tables live in memory: a stale code just
+  /// answers "Aucune table ouverte avec ce code".
+  tableId   String?
+  createdAt DateTime @default(now())
+
+  @@unique([fromId, toId])
+  @@index([toId])
+}

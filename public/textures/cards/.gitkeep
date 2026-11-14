@@ -1,0 +1,9 @@
+# Card textures go here:
+#   card_back.jpg   — classic red/gold card back pattern
+#   card_face_0.jpg — About hand face
+#   card_face_1.jpg — Skills hand face
+#   card_face_2.jpg — Projects hand face
+#   card_face_3.jpg — Experience hand face
+#   card_face_4.jpg — Contact hand face
+#
+# Register paths in src/core/AssetLoader.js TEXTURES map.

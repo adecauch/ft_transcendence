@@ -1,0 +1,29 @@
+{
+  "name": "ft_transcendence-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend services for Poker Transcendence",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file=../.env src/index.js",
+    "start": "node src/index.js",
+    "db:migrate": "node --env-file=../.env node_modules/prisma/build/index.js migrate dev",
+    "db:deploy": "node --env-file=../.env node_modules/prisma/build/index.js migrate deploy",
+    "db:studio": "node --env-file=../.env node_modules/prisma/build/index.js studio",
+    "db:generate": "node --env-file=../.env node_modules/prisma/build/index.js generate",
+    "test": "node --env-file=../.env --test tests/*.test.mjs",
+    "db:rebuild-infosets": "node --env-file=../.env scripts/rebuild-infosets.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/websocket": "^11.3.3",
+    "@prisma/client": "^6.19.3",
+    "argon2": "^0.45.1",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3",
+    "ws": "^8.22.0"
+  }
+}

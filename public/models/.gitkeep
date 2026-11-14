@@ -1,0 +1,5 @@
+# Place your .glb model files here:
+#   table.glb  — poker table 3D model
+#   chips.glb  — decorative poker chips
+#
+# Until real models are added, Table.js uses a procedural fallback.

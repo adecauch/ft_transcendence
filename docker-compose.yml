@@ -1,0 +1,73 @@
+# **************************************************************************** #
+#                                                                              #
+#                                                         :::      ::::::::    #
+#    docker-compose.yml                                 :+:      :+:    :+:    #
+#                                                     +:+ +:+         +:+      #
+#    By: adecauch <adecauch@student.42.fr>          +#+  +:+       +#+         #
+#                                                 +#+#+#+#+#+   +#+            #
+#    Created: 2026/10/06 21:01:40 by adecauch          #+#    #+#              #
+#    Updated: 2026/10/07 14:56:00 by adecauch         ###   ########.fr        #
+#                                                                              #
+# **************************************************************************** #
+
+# Compose configuration for Podman. nginx terminates HTTPS and proxies the
+# frontend API requests to the backend service.
+#
+#   podman compose up -d db     start PostgreSQL in the background
+#   podman compose down         stop it (data kept in the `pgdata` volume)
+#   podman compose down -v      stop it AND erase all data
+#
+# Credentials come from the .env file next to this one (see .env.example).
+
+services:
+  db:
+    image: docker.io/library/postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SERVER_PORT: ${SERVER_PORT:-3100}
+      NODE_ENV: production
+      SESSION_DAYS: ${SESSION_DAYS:-7}
+      PASSWORD_PEPPER: ${PASSWORD_PEPPER:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro,Z
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  pgdata:

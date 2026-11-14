@@ -1,0 +1,22 @@
+# **************************************************************************** #
+#                                                                              #
+#                                                         :::      ::::::::    #
+#    docker-compose.dev.yml                             :+:      :+:    :+:    #
+#                                                     +:+ +:+         +:+      #
+#    By: adecauch <adecauch@student.42.fr>          +#+  +:+       +#+         #
+#                                                 +#+#+#+#+#+   +#+            #
+#    Created: 2026/10/07 14:57:46 by adecauch          #+#    #+#              #
+#    Updated: 2026/10/07 14:57:47 by adecauch         ###   ########.fr        #
+#                                                                              #
+# **************************************************************************** #
+
+# Optional local development overrides. The main Compose stack exposes only
+# nginx; these ports are for host-side Prisma and integration test commands.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  server:
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-3100}:3100"

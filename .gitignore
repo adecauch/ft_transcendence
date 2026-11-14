@@ -1,0 +1,28 @@
+# Dependencies (reinstall with `npm install`)
+node_modules/
+
+# Build output
+dist/
+
+# OS / editor
+.DS_Store
+
+# Secrets (copy .env.example to .env)
+.env
+
+# Local project resources: the 42 subject, and the Slumbot results of 28/09
+# (copied to ../CFR/tests/slumbot/results/, where the match now lives)
+docs/project/en.subject.pdf
+docs/project/slumbot/
+
+# Local 42 subjects
+en.subject.pdf
+fr.subject.pdf
+
+# Local HTTPS development credentials
+certs/*.crt
+certs/*.key
+
+# Private generated MCCFR strategies (the browser must never receive them)
+# server/data/strategy.bin
+server/data/analysis.bin
